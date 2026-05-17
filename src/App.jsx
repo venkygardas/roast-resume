@@ -295,7 +295,7 @@ export default function RoastMyResume() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": "Bearer YOUR_GROQ_KEY_HERE"
+          "Authorization": `Bearer ${import.meta.env.VITE_GROQ_KEY}`
         },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
