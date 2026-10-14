@@ -32,10 +32,23 @@ different system prompt.
 ```
 React 19 + Vite        no framework beyond that, no router, no UI library
 api/roast.js           Vercel serverless function, holds the key and the prompts
+src/readPdf.js         pdf.js text extraction, in the browser, lazily loaded
 Groq                   llama-3.3-70b-versatile, max_tokens 1000
 styling                inline style objects, no CSS framework
-dependencies           react, react-dom. That is the whole list.
+dependencies           react, react-dom, pdfjs-dist
 ```
+
+### Why the PDF is read in the browser
+
+A resume is somebody's address, phone number and employment history, and the
+only thing a roast needs is the words. Extracting locally means the file never
+leaves the machine: `/api/roast` receives text, exactly as it does when you
+paste. pdf.js is imported lazily, so the 1.6 MB of it loads only for someone
+who actually drops a file.
+
+A scanned resume is a picture of words rather than words, so it opens fine and
+yields nothing. That is said out loud instead of being sent as an empty resume,
+which is what this tab used to do.
 
 ### Why the roast is not called from the browser
 
@@ -79,19 +92,23 @@ Set `GROQ_KEY` in the Vercel project's environment variables. Not
 ## Checks
 
 ```bash
-node scripts/roast-check.mjs
+node scripts/roast-check.mjs                       # the endpoint
+npm run build && npx vite preview --port 4173 &
+node scripts/upload-check.mjs                      # the upload path
 ```
 
-Twenty one assertions, no network and no real key: every refusal fires, a
-caller cannot substitute their own system prompt, the bearer token comes from
-the environment, and an upstream error naming a key does not reach the browser.
+`roast-check` is twenty one assertions with no network and no real key: every
+refusal fires, a caller cannot substitute their own system prompt, the bearer
+token comes from the environment, and an upstream error naming a key does not
+reach the browser.
+
+`upload-check` drives the built app in a real browser against three generated
+PDFs and asserts on the **outgoing request**, not the screen. The upload tab
+used to show a filename and a tick while sending an empty resume, so anything
+that checked the UI would have passed it. Only the request body catches that.
 
 ## Known issues
 
-- **PDF upload does not read the file.** The upload tab accepts a PDF, checks
-  the type and shows the filename, but nothing extracts the text, so the roast
-  is generated from an empty resume. Paste works correctly. Either the tab
-  needs a real text extraction step or it should come out.
 - No streaming, so a roast arrives all at once after a few seconds of rotating
   loading lines.
 - The rate limit lives in one instance's memory. It resets on a cold start and

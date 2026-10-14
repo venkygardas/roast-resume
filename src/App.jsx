@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { readPdf, PdfError } from "./readPdf";
 
 /* Label and tagline only. The system prompts live in api/roast.js, because a
    proxy that forwards a prompt the browser wrote is just a free LLM on my
@@ -238,11 +239,13 @@ export default function RoastMyResume() {
   const [error, setError] = useState("");
   const [fileName, setFileName] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [pdfInfo, setPdfInfo] = useState(null);
   const [loadingLine, setLoadingLine] = useState(0);
   const fileRef = useRef();
   const loadingRef = useRef();
 
-  const handleFile = (file) => {
+  const handleFile = async (file) => {
     if (!file) return;
     if (file.type !== "application/pdf") {
       setError("PDF only please. We can't roast a .docx, we have standards.");
@@ -250,6 +253,21 @@ export default function RoastMyResume() {
     }
     setError("");
     setFileName(file.name);
+    setText("");
+    setPdfInfo(null);
+    setReading(true);
+    try {
+      const { text: extracted, pages, truncated } = await readPdf(file);
+      setText(extracted);
+      setPdfInfo({ pages, truncated, words: extracted.split(/\s+/).length });
+    } catch (err) {
+      // A PdfError is written for the person holding the file. Anything else is
+      // a bug, and a stack trace in the UI helps nobody.
+      setError(err instanceof PdfError ? err.message : "That PDF could not be read.");
+      setFileName("");
+    } finally {
+      setReading(false);
+    }
   };
 
   const handleRoast = async () => {
@@ -259,6 +277,14 @@ export default function RoastMyResume() {
     }
     if (tab === "upload" && !fileName) {
       setError("Upload a PDF first. Your resume, not your cat photos.");
+      return;
+    }
+    if (tab === "upload" && reading) {
+      setError("Still reading that PDF. One second.");
+      return;
+    }
+    if (tab === "upload" && !text.trim()) {
+      setError("Nothing was read out of that PDF. Try the paste tab.");
       return;
     }
     setError("");
@@ -347,9 +373,19 @@ export default function RoastMyResume() {
                 style={{ display: "none" }}
                 onChange={e => handleFile(e.target.files[0])}
               />
-              <div style={s.dropIcon}>{fileName ? "✓" : "↑"}</div>
-              {fileName ? (
-                <p style={s.fileName}>{fileName}</p>
+              <div style={s.dropIcon}>{reading ? "..." : fileName ? "\u2713" : "\u2191"}</div>
+              {reading ? (
+                <p style={s.fileName}>Reading the PDF...</p>
+              ) : fileName ? (
+                <>
+                  <p style={s.fileName}>{fileName}</p>
+                  {pdfInfo && (
+                    <p style={{ ...s.dropText, fontSize: "0.75rem", opacity: 0.65, marginTop: "0.4rem" }}>
+                      {pdfInfo.pages} page{pdfInfo.pages === 1 ? "" : "s"} read, {pdfInfo.words} words
+                      {pdfInfo.truncated ? ", first 30 pages only" : ""}
+                    </p>
+                  )}
+                </>
               ) : (
                 <>
                   <p style={s.dropText}>Drop your PDF here or click to browse</p>
