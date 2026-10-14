@@ -24,34 +24,67 @@ fix is just an insult.
 
 ## How it works
 
-One React component, about 430 lines, and no backend. Your resume goes
-straight from the browser to `llama-3.3-70b-versatile` on Groq's
-OpenAI-compatible endpoint, and the roast comes back. The heat level is not a
-parameter, it is a different system prompt.
+One React component for the page, one serverless function for the roast. Your
+resume goes to `/api/roast`, which picks the system prompt and calls
+`llama-3.3-70b-versatile` on Groq. The heat level is not a parameter, it is a
+different system prompt.
 
 ```
 React 19 + Vite        no framework beyond that, no router, no UI library
+api/roast.js           Vercel serverless function, holds the key and the prompts
 Groq                   llama-3.3-70b-versatile, max_tokens 1000
 styling                inline style objects, no CSS framework
 dependencies           react, react-dom. That is the whole list.
 ```
 
+### Why the roast is not called from the browser
+
+It used to be. The browser held the key in a `VITE_GROQ_KEY`, and Vite inlines
+anything named `VITE_*` into the bundle at build time, so that key was readable
+by anyone who opened the network tab for as long as the site was up.
+
+Moving the call to a function fixes that, but only if the function refuses to
+be a general purpose one. Two things make it a proxy rather than a free LLM on
+my account:
+
+- **The server owns the prompts.** The browser sends `mild`, `medium` or
+  `savage`, not words. An id that is not one of the three is refused, so there
+  is no request that makes this model do something other than roast a resume.
+- **The key has no `VITE_` prefix.** `GROQ_KEY` cannot be inlined even by
+  accident. `node scripts/roast-check.mjs` builds with a canary key in the
+  environment and asserts that nothing key shaped reaches `dist/`.
+
+There is also a size cap, a per IP rate limit, and errors from Groq are logged
+rather than forwarded, because an upstream message can name the key or the
+account.
+
 ## Running it
 
 ```bash
 npm install
-echo "VITE_GROQ_KEY=your_key_here" > .env.local
-npm run dev
+echo "GROQ_KEY=your_key_here" > .env.local
+npx vercel dev
 ```
 
 A key is free from [console.groq.com](https://console.groq.com).
 
-**One thing to know before you deploy this.** Anything Vite names `VITE_*` is
-inlined into the JavaScript bundle at build time, which means it is readable by
-anyone who opens the network tab. That is fine for a weekend toy on a free
-tier. It is not fine for a key you care about, and the fix is to move the call
-behind a serverless function so the key stays on the server. That is the next
-thing this needs.
+`npm run dev` runs Vite alone, which serves the page but not `/api`, so the
+roast button will 404. Use `vercel dev` for the whole thing.
+
+### Deploying
+
+Set `GROQ_KEY` in the Vercel project's environment variables. Not
+`VITE_GROQ_KEY`, which is the bug this was built to remove.
+
+## Checks
+
+```bash
+node scripts/roast-check.mjs
+```
+
+Twenty one assertions, no network and no real key: every refusal fires, a
+caller cannot substitute their own system prompt, the bearer token comes from
+the environment, and an upstream error naming a key does not reach the browser.
 
 ## Known issues
 
@@ -59,9 +92,12 @@ thing this needs.
   the type and shows the filename, but nothing extracts the text, so the roast
   is generated from an empty resume. Paste works correctly. Either the tab
   needs a real text extraction step or it should come out.
-- **The key is in the client.** See above.
 - No streaming, so a roast arrives all at once after a few seconds of rotating
   loading lines.
+- The rate limit lives in one instance's memory. It resets on a cold start and
+  does not see what another instance served, so it stops a loop from one
+  machine and not much else. Real limiting needs shared state, which this does
+  not have and does not yet justify.
 
 ## Why it exists
 

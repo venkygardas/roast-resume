@@ -1,24 +1,12 @@
 import { useState, useRef } from "react";
 
+/* Label and tagline only. The system prompts live in api/roast.js, because a
+   proxy that forwards a prompt the browser wrote is just a free LLM on my
+   Groq account. The client sends an id and the server picks the words. */
 const LEVELS = [
-  {
-    id: "mild",
-    label: "Mild",
-    tag: "Spicy but kind",
-    system: "You're a witty career coach doing a light comedy roast. Be funny and a bit cheeky but ultimately warm. Make 3–4 specific, funny observations that reference real things in the resume. Call out buzzwords or vague claims gently. End with 3 genuinely useful improvement tips labeled clearly."
-  },
-  {
-    id: "medium",
-    label: "Medium",
-    tag: "Actually burns",
-    system: "You're a sharp recruiter hosting a proper roast. Be genuinely funny, specific, and a bit savage — call out every cliché, every vague bullet point, every inflated job title you see. Don't sugarcoat it. Be merciless but constructive. End with 3 real improvement tips labeled clearly."
-  },
-  {
-    id: "savage",
-    label: "Savage",
-    tag: "No survivors",
-    system: "You are a brutal comedy roast MC with absolutely zero mercy. Obliterate this resume. Mock every buzzword, every 'team player', every 'passionate about synergies', every gap, every weak verb, every lie you can smell. Be hilarious, specific, and relentlessly savage. Leave nothing standing. But — because even monsters have hearts — end with 3 genuinely useful improvement tips labeled clearly."
-  }
+  { id: "mild",   label: "Mild",   tag: "Spicy but kind" },
+  { id: "medium", label: "Medium", tag: "Actually burns" },
+  { id: "savage", label: "Savage", tag: "No survivors" }
 ];
 
 const LOADING_LINES = [
@@ -283,34 +271,19 @@ export default function RoastMyResume() {
       setLoadingLine(lineIdx);
     }, 1800);
 
-    const selectedLevel = LEVELS.find(l => l.id === level);
-
     try {
-      const messages = [
-        { role: "system", content: selectedLevel.system },
-        { role: "user", content: `Here is my resume. Roast it:\n\n${text}` }
-      ];
-
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const res = await fetch("/api/roast", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${import.meta.env.VITE_GROQ_KEY}`
-        },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          max_tokens: 1000,
-          messages
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level, text })
       });
 
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
-      const result = data.choices?.[0]?.message?.content;
-      if (!result) throw new Error("No response returned.");
-      setRoast(result);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "The roast judges are unavailable.");
+      if (!data.roast) throw new Error("Nothing came back. Try again.");
+      setRoast(data.roast);
     } catch (err) {
-      setError("Something broke: " + err.message);
+      setError(err.message);
     } finally {
       clearInterval(loadingRef.current);
       setLoading(false);
